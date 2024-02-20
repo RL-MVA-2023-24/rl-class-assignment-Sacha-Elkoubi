@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import random
+import os
 import gymnasium as gym
 from env_hiv import HIVPatient
 
@@ -88,7 +89,9 @@ class ProjectAgent:
     def save(self, path: str) -> None:
         torch.save(self.q_network.state_dict(), path)
 
-    def load(self, path: str="./model_max.pth") -> None:
+    def load(self) -> None:
+        script_path = os.path.abspath(__file__)
+        path = os.path.join(script_path, 'model_max.pth')
         self.q_network.load_state_dict(torch.load(path))
 
 def train(agent: ProjectAgent, env, episodes: int):
