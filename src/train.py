@@ -90,7 +90,7 @@ class ProjectAgent:
         torch.save(self.q_network.state_dict(), path)
 
     def load(self) -> None:
-        script_path = os.path.abspath(__file__)
+        script_path = os.path.dirname(os.path.abspath(__file__))
         path = os.path.join(script_path, 'model_max.pth')
         self.q_network.load_state_dict(torch.load(path))
 
