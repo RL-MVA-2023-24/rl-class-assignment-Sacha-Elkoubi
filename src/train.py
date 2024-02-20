@@ -5,7 +5,7 @@ import torch.optim as optim
 import random
 import gymnasium as gym
 from env_hiv import HIVPatient
-from tqdm import tqdm
+
 
 class QNetwork(nn.Module):
     def __init__(self, input_size: int, output_size: int, hidden_size: int = 64):
@@ -88,12 +88,12 @@ class ProjectAgent:
     def save(self, path: str) -> None:
         torch.save(self.q_network.state_dict(), path)
 
-    def load(self, path: str="model_episode_100.pth") -> None:
+    def load(self, path: str="model_max.pth") -> None:
         self.q_network.load_state_dict(torch.load(path))
 
 def train(agent: ProjectAgent, env, episodes: int):
     max_total_reward = float(0)
-    for episode in tqdm(range(episodes)):
+    for episode in range(episodes):
         observation = env.reset()
         if isinstance(observation, tuple):  # Check if observation is a tuple
             observation = observation[0]  # Take the first element of the tuple
@@ -118,6 +118,6 @@ def train(agent: ProjectAgent, env, episodes: int):
 # Example usage:
 # Initialize environment and agent
 #env = HIVPatient()
-#agent = DQNAgent(observation_size=env.observation_space.shape[0], action_size=env.action_space.n)
+#agent = ProjectAgent(observation_size=env.observation_space.shape[0], action_size=env.action_space.n)
 # Train the agent
 #train(agent, env, episodes=100)
