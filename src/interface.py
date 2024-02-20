@@ -13,6 +13,7 @@ class Agent(Protocol):
     Protocols are a way to define formal Python interfaces. They allow for type checking
     and ensure that implementing classes provide specific methods with the expected signatures.
     """
+    
 
     def act(self, observation: np.ndarray, use_random: bool = False) -> int:
         """
