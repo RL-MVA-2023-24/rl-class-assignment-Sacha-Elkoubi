@@ -8,16 +8,31 @@ import gymnasium as gym
 from env_hiv import HIVPatient
 
 
+# class QNetwork(nn.Module):
+#     def __init__(self, input_size: int, output_size: int, hidden_size: int = 64):
+#         super(QNetwork, self).__init__()
+#         self.fc1 = nn.Linear(input_size, hidden_size)
+#         self.fc2 = nn.Linear(hidden_size, hidden_size)
+#         self.fc3 = nn.Linear(hidden_size, output_size)
+
+#     def forward(self, x):
+#         x = torch.relu(self.fc1(x))
+#         x = torch.relu(self.fc2(x))
+#         x = self.fc3(x)
+#         return x
+
 class QNetwork(nn.Module):
     def __init__(self, input_size: int, output_size: int, hidden_size: int = 64):
         super(QNetwork, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
+        self.dropout1 = nn.Dropout(0.4)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.dropout2 = nn.Dropout(0.4)
         self.fc3 = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
+        x = torch.relu(self.dropout1(self.fc1(x)))
+        x = torch.relu(self.dropout2(self.fc2(x)))
         x = self.fc3(x)
         return x
 
@@ -65,6 +80,7 @@ class ProjectAgent:
         observations, targets = [], []
         for observation, action, reward, next_observation, done in minibatch:
             target = reward
+            done=False
             if not done:
                 next_observation = torch.FloatTensor(next_observation).unsqueeze(0)
                 target = reward + self.gamma * torch.max(self.target_q_network(next_observation).detach())
@@ -89,6 +105,7 @@ class ProjectAgent:
     def save(self, path: str) -> None:
         torch.save(self.q_network.state_dict(), path)
 
+   
     def load(self) -> None:
         script_path = os.path.dirname(os.path.abspath(__file__))
         path = os.path.join(script_path, 'model_max.pth')
@@ -120,7 +137,7 @@ def train(agent: ProjectAgent, env, episodes: int):
 
 # Example usage:
 # Initialize environment and agent
-#env = HIVPatient()
-#agent = ProjectAgent(observation_size=env.observation_space.shape[0], action_size=env.action_space.n)
-# Train the agent
-#train(agent, env, episodes=100)
+# env = HIVPatient()
+# agent = ProjectAgent(observation_size=env.observation_space.shape[0], action_size=env.action_space.n)
+# # Train the agent
+# train(agent, env, episodes=1000)
