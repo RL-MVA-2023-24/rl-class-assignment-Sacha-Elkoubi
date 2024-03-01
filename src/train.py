@@ -104,12 +104,12 @@ class ProjectAgent:
     
         
     def save(self, model_filename='model_max.pth'):
-        save_dir = '/Users/sacha/Documents/GitHub/rl-class-assignment-Sacha-Elkoubi/src'
+        save_dir = 'src'
         save_path = os.path.join(save_dir, model_filename)
         torch.save(self.model.state_dict(), save_path)
 
     def load(self, model_filename='model_max.pth'):
-        load_dir = '/Users/sacha/Documents/GitHub/rl-class-assignment-Sacha-Elkoubi/src'
+        load_dir = 'src'
         load_path = os.path.join(load_dir, model_filename)
         self.model.load_state_dict(torch.load(load_path))
         self.target_model.load_state_dict(torch.load(load_path))
