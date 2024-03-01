@@ -10,7 +10,6 @@ import random
 env = TimeLimit(
     env=HIVPatient(domain_randomization=False), max_episode_steps=200
 )  
-
 #We will start from the DQN of the course
 class ReplayBuffer:
     def __init__(self, capacity):
@@ -214,7 +213,7 @@ config_test = {'nb_actions': env.action_space.n ,
         'update_target_tau': 0.005,
         'criterion': torch.nn.SmoothL1Loss()}
 
-# # Train agent
+# # #Train agent
 # agent = ProjectAgent(config=config_test)
 # scores = agent.train(env, 250)
 
