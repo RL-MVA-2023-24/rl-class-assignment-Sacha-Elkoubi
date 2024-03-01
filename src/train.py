@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 from copy import deepcopy
 import random
-import matplotlib.pyplot as plt
 
 env = TimeLimit(
     env=HIVPatient(domain_randomization=False), max_episode_steps=200
