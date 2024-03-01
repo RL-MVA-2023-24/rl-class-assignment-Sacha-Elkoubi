@@ -4,8 +4,7 @@ import numpy as np
 import torch
 
 from evaluate import evaluate_HIV, evaluate_HIV_population
-from train import ProjectAgent  # Replace DummyAgent with your agent implementation
-
+from train import ProjectAgent
 
 def seed_everything(seed: int = 42):
     random.seed(seed)
@@ -25,6 +24,7 @@ if __name__ == "__main__":
     agent.load()
     # Keep the following lines to evaluate your agent unchanged.
     score_agent: float = evaluate_HIV(agent=agent, nb_episode=1)
+    print('a')
     score_agent_dr: float = evaluate_HIV_population(agent=agent, nb_episode=15)
     with open(file="score.txt", mode="w") as f:
         f.write(f"{score_agent}\n{score_agent_dr}")

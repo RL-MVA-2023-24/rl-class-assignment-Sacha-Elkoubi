@@ -1,143 +1,221 @@
+from gymnasium.wrappers import TimeLimit
+from env_hiv import HIVPatient
+import os
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
+from copy import deepcopy
 import random
-import os
-import gymnasium as gym
-from env_hiv import HIVPatient
+import matplotlib.pyplot as plt
+
+env = TimeLimit(
+    env=HIVPatient(domain_randomization=False), max_episode_steps=200
+)  
+
+#We will start from the DQN of the course
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.capacity = capacity # capacity of the buffer
+        self.data = []
+        self.index = int(0) # index of the next cell to be filled
 
 
-# class QNetwork(nn.Module):
-#     def __init__(self, input_size: int, output_size: int, hidden_size: int = 64):
-#         super(QNetwork, self).__init__()
-#         self.fc1 = nn.Linear(input_size, hidden_size)
-#         self.fc2 = nn.Linear(hidden_size, hidden_size)
-#         self.fc3 = nn.Linear(hidden_size, output_size)
+    def append(self, s, a, r, s_, d):
+        if len(self.data) < self.capacity:
+            self.data.append(None)
+        self.data[self.index] = (s, a, r, s_, d)
+        self.index = int((self.index + 1) % self.capacity)
 
-#     def forward(self, x):
-#         x = torch.relu(self.fc1(x))
-#         x = torch.relu(self.fc2(x))
-#         x = self.fc3(x)
-#         return x
-
-class QNetwork(nn.Module):
-    def __init__(self, input_size: int, output_size: int, hidden_size: int = 64):
-        super(QNetwork, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.dropout1 = nn.Dropout(0.4)
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.dropout2 = nn.Dropout(0.4)
-        self.fc3 = nn.Linear(hidden_size, output_size)
-
-    def forward(self, x):
-        x = torch.relu(self.dropout1(self.fc1(x)))
-        x = torch.relu(self.dropout2(self.fc2(x)))
-        x = self.fc3(x)
-        return x
+    def sample(self, batch_size):
+        batch = random.sample(self.data, batch_size)
+        return list(map(lambda x:torch.Tensor(np.array(x)), list(zip(*batch))))
+    
+    def __len__(self):
+        return len(self.data)
 
 class ProjectAgent:
-    def __init__(self, observation_size: int=6, action_size: int=4, gamma: float = 0.99, epsilon: float = 1.0,
-                 epsilon_decay: float = 0.995, epsilon_min: float = 0.01, learning_rate: float = 0.001,
-                 batch_size: int = 64, replay_memory_size: int = 10000, target_update_freq: int = 100):
-        self.observation_size = observation_size
-        self.action_size = action_size
-        self.gamma = gamma
-        self.epsilon = epsilon
-        self.epsilon_decay = epsilon_decay
-        self.epsilon_min = epsilon_min
-        self.learning_rate = learning_rate
-        self.batch_size = batch_size
-        self.target_update_freq = target_update_freq
+    def __init__(self, config=None, model=None):
 
-        self.q_network = QNetwork(observation_size, action_size)
-        self.target_q_network = QNetwork(observation_size, action_size)
-        self.target_q_network.load_state_dict(self.q_network.state_dict())
-        self.target_q_network.eval()
 
-        self.optimizer = optim.Adam(self.q_network.parameters(), lr=self.learning_rate)
+    
+        if config == None:
+            config = {'nb_actions': env.action_space.n,
+            'learning_rate': 0.001,
+            'gamma': 0.95,
+            'buffer_size': 1e6,
+            'epsilon_min': 0.01,
+            'epsilon_max': 1.,
+            'epsilon_decay_period': 5000,
+            'epsilon_delay_decay': 50,
+            'batch_size': 200,
+            'gradient_steps': 2,
+            'update_target_strategy': 'ema',
+            'update_target_freq': 50,
+            'update_target_tau': 0.005,
+            'criterion': torch.nn.SmoothL1Loss()}
+        
+        self.nb_neurons=256
+        self.nb_actions = config['nb_actions']
+        self.state_dim = env.observation_space.shape[0]
 
-        self.replay_memory = []
-        self.replay_memory_size = replay_memory_size
-        self.timestep = 0
+        if model == None:
+            #I see that the use of a bigger model helps achieve way better results
+            model = torch.nn.Sequential(nn.Linear(self.state_dim, self.nb_neurons),
+                nn.ReLU(),
+                nn.Linear(self.nb_neurons, self.nb_neurons),
+                nn.ReLU(),
+                nn.Linear(self.nb_neurons, self.nb_neurons),
+                nn.ReLU(),
+                nn.Linear(self.nb_neurons, self.nb_neurons),
+                nn.ReLU(),
+                nn.Linear(self.nb_neurons, self.nb_neurons), 
+                nn.ReLU(),
+                nn.Linear(self.nb_neurons, self.nb_neurons),
+                nn.ReLU(),
+                nn.Linear(self.nb_neurons, self.nb_actions))
 
-    def act(self, observation: np.ndarray) -> int:
-        if np.random.rand() <= self.epsilon:
-            return random.randrange(self.action_size)
-        observation = torch.Tensor(observation).unsqueeze(0)
-        q_values = self.q_network(observation)
-        return torch.argmax(q_values).item()
 
-    def remember(self, observation: np.ndarray, action: int, reward: float, next_observation: np.ndarray, done: bool):
-        self.replay_memory.append((observation, action, reward, next_observation, done))
-        if len(self.replay_memory) > self.replay_memory_size:
-            self.replay_memory.pop(0)
+        self.gamma = config['gamma'] if 'gamma' in config.keys() else 0.95
+        self.batch_size = config['batch_size'] if 'batch_size' in config.keys() else 100
+        buffer_size = config['buffer_size'] if 'buffer_size' in config.keys() else int(1e5)
+        self.memory = ReplayBuffer(buffer_size)
+        self.epsilon_max = config['epsilon_max'] if 'epsilon_max' in config.keys() else 1.
+        self.epsilon_min = config['epsilon_min'] if 'epsilon_min' in config.keys() else 0.01
+        self.epsilon_stop = config['epsilon_decay_period'] if 'epsilon_decay_period' in config.keys() else 1000
+        self.epsilon_delay = config['epsilon_delay_decay'] if 'epsilon_delay_decay' in config.keys() else 20
+        self.epsilon_step = (self.epsilon_max-self.epsilon_min)/self.epsilon_stop
+        self.model = model 
+        self.target_model = deepcopy(self.model)
+        self.criterion = config['criterion'] if 'criterion' in config.keys() else torch.nn.MSELoss()
+        lr = config['learning_rate'] if 'learning_rate' in config.keys() else 0.001
+        self.optimizer = config['optimizer'] if 'optimizer' in config.keys() else torch.optim.Adam(self.model.parameters(), lr=lr)
+        self.nb_gradient_steps = config['gradient_steps'] if 'gradient_steps' in config.keys() else 1
+        self.update_target_strategy = config['update_target_strategy'] if 'update_target_strategy' in config.keys() else 'replace'
+        self.update_target_freq = config['update_target_freq'] if 'update_target_freq' in config.keys() else 20
+        self.update_target_tau = config['update_target_tau'] if 'update_target_tau' in config.keys() else 0.005
 
-    def replay(self):
-        if len(self.replay_memory) < self.batch_size:
-            return
-        minibatch = random.sample(self.replay_memory, self.batch_size)
-        observations, targets = [], []
-        for observation, action, reward, next_observation, done in minibatch:
-            target = reward
-            done=False
-            if not done:
-                next_observation = torch.FloatTensor(next_observation).unsqueeze(0)
-                target = reward + self.gamma * torch.max(self.target_q_network(next_observation).detach())
-            target_f = self.q_network(torch.FloatTensor(observation).unsqueeze(0))
-            target_f[0][action] = target
-            observations.append(observation)
-            targets.append(target_f)
-        observations = torch.FloatTensor(observations)
-        targets = torch.cat(targets)
-        self.optimizer.zero_grad()
-        loss = nn.MSELoss()(self.q_network(observations), targets)
-        loss.backward()
-        self.optimizer.step()
+        self.path_model = 'src/{model_name}.pth'
 
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-
-        self.timestep += 1
-        if self.timestep % self.target_update_freq == 0:
-            self.target_q_network.load_state_dict(self.q_network.state_dict())
-
-    def save(self, path: str) -> None:
-        torch.save(self.q_network.state_dict(), path)
-
-   
-    def load(self) -> None:
-        script_path = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(script_path, 'model_max.pth')
-        self.q_network.load_state_dict(torch.load(path))
-
-def train(agent: ProjectAgent, env, episodes: int):
-    max_total_reward = float(0)
-    for episode in range(episodes):
-        observation = env.reset()
-        if isinstance(observation, tuple):  # Check if observation is a tuple
-            observation = observation[0]  # Take the first element of the tuple
-        total_reward = 0
-        done = False
-        for _ in range(episodes):
-            action = agent.act(observation)
-            next_observation, reward, _ , _, _ = env.step(action)
-            agent.remember(observation, action, reward, next_observation, done)
-            observation = next_observation
-            total_reward += reward
-            agent.replay()
+        
+        nb_actions = env.action_space.n 
+        self.best_model = None
+        self.best_value = 0
+    
     
         
-        print(f"Episode {episode + 1}/{episodes}, Total Reward: {total_reward}")
-        
-        if  total_reward>max_total_reward:
-            max_total_reward=total_reward
-            agent.save("model_max.pth")
-            
+    def save(self, model_filename='model_max.pth'):
+        save_dir = '/Users/sacha/Documents/GitHub/rl-class-assignment-Sacha-Elkoubi/src'
+        save_path = os.path.join(save_dir, model_filename)
+        torch.save(self.model.state_dict(), save_path)
 
-# Example usage:
-# Initialize environment and agent
-# env = HIVPatient()
-# agent = ProjectAgent(observation_size=env.observation_space.shape[0], action_size=env.action_space.n)
-# # Train the agent
-# train(agent, env, episodes=1000)
+    def load(self, model_filename='model_max.pth'):
+        load_dir = '/Users/sacha/Documents/GitHub/rl-class-assignment-Sacha-Elkoubi/src'
+        load_path = os.path.join(load_dir, model_filename)
+        self.model.load_state_dict(torch.load(load_path))
+        self.target_model.load_state_dict(torch.load(load_path))
+
+
+    def act(self, observation, use_random=False):
+      if use_random :
+        return env.action_space.sample()
+      else :
+        with torch.no_grad():
+          Q = self.model(torch.Tensor(observation).unsqueeze(0))
+        return torch.argmax(Q).item()
+    
+
+    def gradient_step(self):
+        #as in course
+        if len(self.memory) > self.batch_size:
+            X, A, R, Y, D = self.memory.sample(self.batch_size)
+            QYmax = self.target_model(Y).max(1)[0].detach()
+            update = torch.addcmul(R, 1-D, QYmax, value=self.gamma)
+            QXA = self.model(X).gather(1, A.to(torch.long).unsqueeze(1))
+            loss = self.criterion(QXA, update.unsqueeze(1))
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step() 
+    
+
+    def train(self, env, max_episode):
+        episode_return = []
+        episode = 0
+        episode_cum_reward = 0
+        state, _ = env.reset()
+        epsilon = self.epsilon_max
+        step = 0
+        best_score=0
+        while episode < max_episode:
+            # update epsilon
+            if step > self.epsilon_delay:
+                epsilon = max(self.epsilon_min, epsilon-self.epsilon_step)
+            # select epsilon-greedy action
+            if np.random.rand() < epsilon:
+                action = self.act(state, use_random=True)
+            else:
+                action = self.act(state)
+            # step
+            next_state, reward, done, trunc, _ = env.step(action)
+            self.memory.append(state, action, reward, next_state, done)
+            episode_cum_reward += reward
+            # train
+            for _ in range(self.nb_gradient_steps): 
+                self.gradient_step()
+            # update target network if needed
+            if self.update_target_strategy == 'replace':
+                if step % self.update_target_freq == 0: 
+                    self.target_model.load_state_dict(self.model.state_dict())
+            if self.update_target_strategy == 'ema':
+                target_state_dict = self.target_model.state_dict()
+                model_state_dict = self.model.state_dict()
+                tau = self.update_target_tau
+                for key in model_state_dict:
+                    target_state_dict[key] = tau*model_state_dict[key] + (1-tau)*target_state_dict[key]
+                self.target_model.load_state_dict(target_state_dict)
+            # next transition
+            step += 1
+            if done or trunc:
+                episode += 1
+                print("Episode ", '{:3d}'.format(episode), 
+                      ", epsilon ", '{:6.2f}'.format(epsilon), 
+                      ", batch size ", '{:5d}'.format(len(self.memory)), 
+                      ", episode return ", '{:4.1f}'.format(episode_cum_reward),
+                      sep='')
+                if episode_cum_reward > best_score:  # Check if current episode return is the best
+                    best_score = episode_cum_reward  # Update best score
+                    torch.save(self.model.state_dict(), 'model_max.pth')  # Save best model
+                    print("New best score! Model saved.")
+                state, _ = env.reset()
+                episode_return.append(episode_cum_reward)
+                episode_cum_reward = 0
+            else:
+                state = next_state
+        return episode_return
+
+
+
+#Declare network
+state_dim = env.observation_space.shape[0]
+n_action= env.action_space
+nb_neurons=256
+
+# DQN config
+config_test = {'nb_actions': env.action_space.n ,
+        'learning_rate': 0.001,
+        'gamma': 1, #finite time 
+        'buffer_size': 1e6,
+        'epsilon_min': 0.01,
+        'epsilon_max': 1.,
+        'epsilon_decay_period': 20000,
+        'epsilon_delay_decay': 200,
+        'batch_size': 200,
+        'gradient_steps': 3,
+        'update_target_strategy': 'replace',
+        'update_target_freq': 400,
+        'update_target_tau': 0.005,
+        'criterion': torch.nn.SmoothL1Loss()}
+
+# # Train agent
+# agent = ProjectAgent(config=config_test)
+# scores = agent.train(env, 250)
+
