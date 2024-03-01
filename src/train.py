@@ -4,9 +4,7 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-import copy
-from copy import deepcopy
-import random
+from numpy import random
 
 env = TimeLimit(
     env=HIVPatient(domain_randomization=False), max_episode_steps=200
@@ -84,7 +82,7 @@ class ProjectAgent:
         self.epsilon_delay = config['epsilon_delay_decay'] if 'epsilon_delay_decay' in config.keys() else 20
         self.epsilon_step = (self.epsilon_max-self.epsilon_min)/self.epsilon_stop
         self.model = model 
-        self.target_model = deepcopy(self.model)
+        self.target_model = self.model
         self.criterion = config['criterion'] if 'criterion' in config.keys() else torch.nn.MSELoss()
         lr = config['learning_rate'] if 'learning_rate' in config.keys() else 0.001
         self.optimizer = config['optimizer'] if 'optimizer' in config.keys() else torch.optim.Adam(self.model.parameters(), lr=lr)
