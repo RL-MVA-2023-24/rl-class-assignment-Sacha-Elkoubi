@@ -4,6 +4,7 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
+import copy
 from copy import deepcopy
 import random
 
